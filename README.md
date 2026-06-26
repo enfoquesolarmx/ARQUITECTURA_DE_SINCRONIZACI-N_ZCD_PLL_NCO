@@ -1,7 +1,3 @@
-# ARQUITECTURA_DE_SINCRONIZACI-N_ZCD_PLL_NCO
-Amplía la arquitectura del zero-cross para usarlo no solo como sensor de presencia de red, sino como referencia de SINCRONIZACIÓN: igualar la frecuencia y la fase del inversor con la red, usando el acumulador de fase (NCO) que ya existe en el código, cerrado en un lazo de enganche de fase (PLL).
-
-
 # Arquitectura de Sincronización: ZCD → PLL → NCO
 
 > **DOCUMENTO DE DISEÑO PARA EVALUAR.** Amplía la arquitectura del zero-cross para
@@ -188,14 +184,88 @@ desconexión sólida.
 
 ---
 
-## 5. Pin y conexión (sin cambios respecto al doc anterior)
+## 5. Mapeo de pines (referencia completa)
 
+### 5.1 Pin del zero-cross para la sincronización
 - **ZEROCROSS_PIN = GPIO39** (solo-entrada, interrupción), señal **ópticamente
   aislada** de la red. Nunca la línea AC directo al pin.
 - La ISR del ZCD es mínima: marca `micros()`, levanta bandera, sale. El PLL se
   calcula en el loop().
-- Sin cambios en los pines de potencia ni en la asignación de relays
-  (GPIO16/17/27). Ver ARQUITECTURA_ZEROCROSS_Y_MAPEO_PINES.md para el mapa completo.
+
+### 5.2 Pines OCUPADOS por el inversor (verificados contra el código real)
+
+| GPIO | Señal | Función | Tipo |
+|------|-------|---------|------|
+| 2  | ALERT_LED_PIN | LED de alerta | salida |
+| 4  | FAN_PIN | Control del ventilador (vía transistor) | salida |
+| 5  | FAULT_DRIVE | Señal de fault al driver (modo CYC) | salida |
+| 18 | DIAG_CRUCE | Diagnóstico del cruce por cero (interno SPWM) | salida |
+| 19 | LO2 | Puente H — pierna lenta, bajo | salida potencia |
+| 21 | HO2 | Puente H — pierna lenta, alto | salida potencia |
+| 22 | LO1 | Puente H — pierna rápida, bajo | salida potencia |
+| 23 | HO1 | Puente H — pierna rápida, alto | salida potencia |
+| 25 | LCD_SDA_PIN | I2C datos (LCD) — remapeado | I2C |
+| 26 | LCD_SCL_PIN | I2C reloj (LCD) — remapeado | I2C |
+| 32 | TEMP1_PIN | Termistor NTC batería (ADC1_CH4) | entrada ADC |
+| 33 | TEMP2_PIN | Termistor NTC MOSFETs (ADC1_CH5) | entrada ADC |
+| 34 | FB_ADC_PIN | Feedback de tensión AC (ADC1_CH6) | entrada ADC, solo-entrada |
+| 35 | BAT_ADC_PIN | Tensión de batería DC (ADC1_CH7) | entrada ADC, solo-entrada |
+
+Nota: los pines I2C por defecto (GPIO21/22) NO se usan para I2C porque chocan con
+la potencia (HO2=21, LO1=22). El I2C del LCD se remapeó a GPIO25/26.
+
+### 5.3 Pines PROPUESTOS — relays AC + zero-cross (para el modo red/transferencia)
+
+| GPIO | Señal | Función | Tipo |
+|------|-------|---------|------|
+| 16 | RELAY_BONDING_PIN | Relay vínculo neutro-tierra (bonding N-G) | salida limpia |
+| 17 | RELAY_XFER_L1_PIN | Relay transferencia Línea 1 | salida limpia |
+| 27 | RELAY_XFER_N_PIN | Relay transferencia Neutro | salida limpia |
+| 39 | ZEROCROSS_PIN | Detección de cruce por cero (AISLADA) | solo-entrada, interrupción |
+
+- GPIO16, 17, 27 son salidas limpias sin strapping (no afectan el arranque).
+- **La tierra de protección NO se conmuta y NO aparece aquí.** El relay "bonding"
+  conmuta el VÍNCULO neutro-tierra (ver sección 4.2.1 y el documento de bonding).
+- El relay de bonding (GPIO16) participa en las secuencias de transferencia de la
+  sección 4.2: se separa antes de reconectar a la red, se une al pasar a isla.
+
+### 5.4 Pines LIBRES de reserva (tras integrar todo)
+
+| GPIO | Aptitud | Notas |
+|------|---------|-------|
+| 13 | salida/entrada | libre, limpio — reserva |
+| 14 | salida/entrada | libre, limpio — reserva |
+| 36 | solo-entrada | libre — reserva para otro sensor |
+
+Quedan tres pines limpios de reserva. (Evitar: GPIO0, 12, 15 strapping; GPIO1, 3
+UART consola; GPIO6-11 flash.)
+
+### 5.5 Mapa visual de ocupación
+
+```
+  ESP32 WROOM — ocupacion de GPIO (con relays + zero-cross integrados)
+  --------------------------------------------------------------
+  0   strapping (evitar)        | 16  RELAY bonding N-G (nuevo)
+  1   UART TX (consola)         | 17  RELAY xfer L1     (nuevo)
+  2   ALERT_LED                 | 18  DIAG_CRUCE
+  3   UART RX (consola)         | 19  LO2 (potencia)
+  4   FAN                       | 21  HO2 (potencia)
+  5   FAULT_DRIVE               | 22  LO1 (potencia)
+  6-11  FLASH (no usar)         | 23  HO1 (potencia)
+  12  strapping (evitar)        | 25  LCD SDA
+  13  LIBRE (reserva)           | 26  LCD SCL
+  14  LIBRE (reserva)           | 27  RELAY xfer N      (nuevo)
+  15  strapping (cuidado)       | 32  TEMP1 (bateria)
+                                | 33  TEMP2 (MOSFETs)
+                                | 34  FB_ADC (feedback AC)
+                                | 35  BAT_ADC (bateria)
+                                | 36  LIBRE (reserva, solo-entrada)
+                                | 39  ZEROCROSS (nuevo, aislado)
+  --------------------------------------------------------------
+```
+
+Para el detalle ampliado del mapeo y la arquitectura de prioridades de interrupción,
+ver ARQUITECTURA_ZEROCROSS_Y_MAPEO_PINES.md.
 
 ---
 
